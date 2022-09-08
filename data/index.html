@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>WebSockets</title>
+</head>
+<body>
+
+<h1>Web Sockets and Polygons</h1>
+<p id="enablejs">Please Enable Javascript</p>
+<!-- <button type="button" id="send">Send</button> -->
+<canvas id="canvas" width="1080" height="720"></canvas>
+<script type="text/javascript">
+    document.getElementById("enablejs").remove();
+    const uri = 'ws://' + location.host + '/sock';
+    const ws = new WebSocket(uri);
+    ws.binaryType = "arraybuffer"
+    const canvas = document.getElementById("canvas");
+    ws.onopen = async (event) => {
+        const buffer = new ArrayBuffer(4);
+        new DataView(buffer).setInt32(0, 0, false /* big endian (network order) */);
+        await ws.send(buffer);
+        await ws.send("Test text message");
+    }
+    all_polys = {}
+    instructions = []
+    ws.onmessage = async (event) => {
+        instructions.push(event.data);
+    }
+    // send_test(ws);
+    function data_loop() {
+        for (const data of instructions) {
+            handle_data(data);
+        }
+        instructions = [];
+        setTimeout(data_loop, 1);
+    }
+    function handle_data(data) {
+        console.log(data);
+        let control_bin = new DataView(data, 0, 8);
+        let data_bin = new DataView(data, 8);
+
+        let op = control_bin.getUint32(0);
+        let id = control_bin.getUint32(4);
+        console.log(op + " " + id);
+
+        if (op === 0) {
+            set_poly_data(id, data_bin);
+            return;
+        }
+        if (op === 8) {
+            clear_canvas();
+        }
+        if(!(id in all_polys)){
+            problem();
+            console.log("id not found! " + Object.entries(all_polys));
+            return;
+        }
+        let poly = all_polys[id];
+        switch (op) {
+            case 1:
+                move_rot = get_move_data(data_bin);
+                poly.show(move_rot[0], move_rot[1]);
+                // poly.show();
+                break;
+            case 2:
+                poly.set_fill(get_style_data(data_bin));
+                break;
+            case 3:
+                poly.set_stroke(get_style_data(data_bin));
+                break;
+            case 4:
+                poly.set_weight(data_bin.getFloat32(0));
+                break;
+        }
+    }
+    function clear_canvas() {
+        let x = canvas.getContext('2d');
+        x.clearRect(0,0,canvas.width,canvas.height);
+    }
+    function set_poly_data(id, data_bin) {
+        if (data_bin.byteLength % 8 != 0) {
+            problem();
+            console.log("REEE length");
+        }
+        let points = []
+        for(let i = 0; i < data_bin.byteLength; i += 8){
+            let point = [
+                data_bin.getFloat32(i+0),
+                data_bin.getFloat32(i+4),
+            ]
+            points.push(point);
+        }
+        let poly = new Poly(points)
+        all_polys[id] = poly;
+        console.log("id set " + Object.entries(all_polys));
+    }
+    function problem() {
+        // do nothing for now
+    }
+    function get_move_data(data) {
+        let point = [0, 0]
+        if (data.byteLength >= 8) {
+            point = [
+                data.getFloat32(0),
+                data.getFloat32(4),
+            ]
+        }
+        let rot = 0;
+        if (data.byteLength >= 12) {
+            rot =  data.getFloat32(8);
+        }
+        if (data.byteLength % 4 || data.byteLength > 12) {
+            problem();
+        }
+        return [point, rot];
+    }
+    function get_style_data(data) {
+        if(data.byteLength !== 4){
+            problem();
+            return rgba(255,0,255,1);
+        }
+        let r = data.getUint8(0);
+        let g = data.getUint8(1);
+        let b = data.getUint8(2);
+        let a = data.getUint8(3)/255;
+        return rgba(r,g,b,a);
+    }
+    function rescaled(point) {
+        point = [point[0], point[1]];
+        point[0] *= 720/2;
+        point[1] *= -720/2;
+        point[0] += 1080/2;
+        point[1] += 720/2;
+        return point;
+    }
+    function draw_poly(context, points) {
+        const x = context;
+        x.beginPath();
+        let point = points.next().value;
+        x.moveTo(point[0], point[1]);
+        for (const point of points) {
+            x.lineTo(point[0], point[1]);
+            console.log(point);
+        }
+        // x.closePath();
+        x.fill();
+        x.stroke();
+    }
+    function rgba(r, g, b, a) {
+        return "rgba(" + [r, g, b, a].join() + ")";
+    }
+    function translated(point, xy, cx) {
+        return cx_mul([point[0] + xy[0], point[1] + xy[1]], cx);
+    }
+    function cx_mul(a, b) {
+        return [a[0]*b[0]-a[1]*b[1],a[0]*b[1]+a[1]*b[0]];
+    }
+    function get_cx_rot(rot) {
+        return [Math.cos(rot), Math.sin(rot)];
+    }
+    class Poly {
+        constructor(points) {
+            this.points = points;
+            this.fill = "#000000";
+            this.line_color = rgba(0,0,0,0);
+            this.line_width = 0;
+        }
+        * screen_points(mov, rot) {
+            for (const point of this.points){
+                let cx = get_cx_rot(rot);
+                yield rescaled(translated(point, mov, cx));
+            }
+        }
+        show(mov, rot) {
+            let x = canvas.getContext('2d');
+            x.fillStyle = this.fill;
+            x.strokeStyle = this.line_color;
+            x.lineWidth = this.line_width;
+            draw_poly(x, this.screen_points(mov, rot));
+        }
+        set_fill(style) {
+            this.fill = style
+        }
+        set_stroke(style) {
+            this.line_color = style
+        }
+        set_weight(weight) {
+            this.line_width = weight
+        }
+    }
+    data_loop();
+    // draw_poly([[0, 0], [100, 50], [50, 100], [0, 90]]);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,16 @@
+
+packet:
+op:u32 | id:u32 | data
+
+point (4-byte aligned):
+x:f32 | y:f32
+
+rotation in "rotations" i.e. 1 == 360 deg
+
+op (action) / data [optional]
+0 (create polygon)  / point1:point | point2:point | ...
+1 (draw polygon)    / [translate:point | [rotate:f32]]
+2 (set fill RGBA)   / r:u8 | g:u8 | b:u8 | a:u8
+3 (set stroke RGBA) / r:u8 | g:u8 | b:u8 | a:u8
+4 (set line width)  / width:f32 
+8 (clear canvas)    / NA
