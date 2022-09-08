@@ -11,4 +11,4 @@ cargo run
 
 Go to `localhost:8080` in a browser.
 
-You should see some stuff! That stuff was specified by the server and sent over a WebSocket to your browser, and recieved/displayed using JavaScript.
+You should see some stuff! That stuff was specified by the server and sent over a WebSocket to your browser, and recieved/displayed on an HTML canvas using JavaScript.
